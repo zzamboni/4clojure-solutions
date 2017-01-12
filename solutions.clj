@@ -1080,7 +1080,7 @@
    ])
 
 ;; #128
-(fn cards [s]
+(defn cards [s]
   (let [suits {"D" :diamond "H" :heart "C" :club "S" :spade}
         ranks (apply merge {"T" 8 "J" 9 "Q" 10 "K" 11 "A" 12} (map #(hash-map (str %) (- % 2)) (range 2 10)))
         [suit rank] (map str (seq s))]
@@ -1288,30 +1288,28 @@
                      "   *   "])])
 
 ;; #140
-(defn veitch [mt]
-  (letfn [(kcomb   ;; combinations
-            ([n coll] (flatten (kcomb n (seq coll) #{})))
-            ([n coll so-far] (if (zero? n) so-far
-                                 (map #(kcomb (dec n) (drop (inc %) coll) (conj so-far (nth coll %)))
-                                      (range (count coll))))))
-          (coord [ax t]  ;; convert a term to the place on the axis where it appears
-            (->> ax (map-indexed #(vector %1 (count (clojure.set/intersection t %2))))
-                 (filter #(= (second %) (count (first ax))))
-                 ffirst))]
-    (let [pairs [#{'A 'a} #{'B 'b} #{'C 'c} #{'D 'd}] 
+(defn veitch [mt] 
+  (letfn [(kcomb ([n coll] (flatten (kcomb n (seq coll) #{})))
+            ([n coll so-far] (if (zero? n) so-far (map #(kcomb (dec n) (drop (inc %) coll) (conj so-far (nth coll %)))
+                                                       (range (count coll))))))
+          (coord [ax t] (->> ax (map-indexed #(vector %1 (count (clojure.set/intersection t %2))))
+                             (filter #(= (second %) (count (first ax)))) ffirst))]
+    (let [pairs [#{'A 'a} #{'B 'b} #{'C 'c} #{'D 'd}] rp [0 1 3]
           xc [#{'a 'b} #{'a 'B} #{'A 'B} #{'A 'b}] xl 4
-          yc (if (= (count (first mt)) 4) [#{'c 'd} #{'c 'D} #{'C 'D} #{'C 'd}] [#{'c} #{'C}]) yl (count yc)
-          rx (range xl) ry (range yl)
+          yc (if (= (count (first mt)) 4) [#{'c 'd} #{'c 'D} #{'C 'D} #{'C 'd}] [#{'c} #{'C}]) yl (count yc) 
           coords (set (map #(vector (coord yc %) (coord xc %)) mt))
-          sq (fn [[y x] [h w]] (for [i (range y (+ y h 1)) j (range x (+ x w 1))] (coords [(mod i yl) (mod j xl)])))
-          p2? (fn [n] (and (not (zero? n)) (zero? (bit-and n (dec n)))))
-          sqs (reduce (fn [r e] (if (some #(= (into % e) %) r) r (conj r e))) [] (sort-by count > (filter #(and (every? (comp not nil?) %) (p2? (count %))) (for [y ry x rx h ry w rx] (set (sq [y x] [h w])))))) 
-          kcombs (apply concat (for [n (range (count sqs) 0 -1)] (seq (kcomb n sqs)))) 
-          sol (first (sort-by count (filter #(= coords (apply clojure.set/union %)) kcombs)))
-          sol (map (fn [e] (apply clojure.set/union (map (fn [f] (into (into #{} (nth yc (first f))) (nth xc (second f)))) e))) sol)
-          sol (map (fn [e] (reduce (fn [r p] (if (= (clojure.set/union r p) r) (clojure.set/difference r p) r)) e pairs)) sol)
-          ]
-      (set sol))))
+          sq (fn [[y x] [h w]] (set (for [i (range y (+ y h 1)) j (range x (+ x w 1))] (coords [(mod i yl) (mod j xl)]))))
+          sqs (->> (for [y (range yl) x (range xl) h rp w rp] (sq [y x] [h w]))
+                   (remove (partial some nil?))
+                   (sort-by count >)
+                   (reduce (fn [r e] (if (some #(= (into % e) %) r) r (conj r e))) []))]
+      (->> (for [n (range (count sqs) 0 -1)] (kcomb n sqs))
+           (apply concat)
+           (filter #(= coords (apply clojure.set/union %)))
+           (sort-by count) first
+           (map (fn [e] (apply clojure.set/union (map (fn [f] (into (into #{} (nth yc (first f))) (nth xc (second f)))) e))))
+           (map (fn [e] (reduce (fn [r p] (if (every? r p) (apply disj r p) r)) e pairs)))
+           set))))
 
 (let [__ veitch]
   [(= (__ #{#{'a 'B 'C 'd}
@@ -1382,6 +1380,617 @@
             #{'a 'b 'C 'd}
             #{'A 'b 'C 'd}})
       #{#{'B 'D}
-        #{'b 'd}})
+        #{'b 'd}})])
+
+;; #141
+(fn trickfn [trump]
+  (fn [cards]
+    (letfn [(maxsuit [suit] (->> cards (filter #(= suit (:suit %))) (sort-by :rank >) first))]
+      (or (when trump (maxsuit trump)) (maxsuit (:suit (first cards)))))))
+
+;; Shorter
+(fn trickfn [t]
+  (fn [c]
+    (->> c (filter #(= (if t t (:suit (first c))) (:suit %))) (sort-by :rank >) first)))
+
+;; #143
+(fn dotp [v1 v2]
+  (reduce + (map * v1 v2)))
+
+;; #144
+(fn oscilrate [v & fns]
+  (reductions #(%2 %) v (cycle fns)))
+
+;; #146
+#(into {} (for [x (keys %) y (keys (% x))] {[x y] (get-in % [x y])}))
+;; Use destructuring, more elegant
+#(into {} (for [[x v] % [y w] v] {[x y] w}))
+
+;; #147
+(fn pascal [v]
+  (iterate #(->> %
+                 (partition-all 2 1)
+                 (map (partial apply +'))
+                 (cons (first %))) v))
+
+(fn pascal [v]
+  (iterate #(map +' (cons 0 %) (concat % [0])) v))
+
+;; #148
+(fn bigdivide [n a b]
+  (letfn [(rsum [t] (/ (*' t (inc t)) 2))
+          (divsum [x] (*' x (rsum (quot (dec n) x))))]
+    (-' (+' (divsum a) (divsum b)) (divsum (*' a b)))))
+
+;; #150
+(defn next-palyndromes [n]
+  (letfn [(n-to-dig [n] (vec (map (comp read-string str) (seq (str n)))))
+          (dig-to-n [d] (read-string (apply str (map str d))))
+          (middle [s] (quot (count s) 2))
+          (next-paly [n]
+            (loop [dig (n-to-dig n)
+                   pos (middle dig)]
+              (let [len (count dig)
+                    mid (middle dig)
+                    d1 (nth dig pos)
+                    d2 (nth dig (- len pos 1)) 
+                    half (subvec dig 0 mid)
+                    hm (concat half (when (odd? len) [(nth dig mid)]))
+                    nn (n-to-dig (inc (dig-to-n hm)))
+                    nd (vec (concat nn (reverse (if (odd? len) (butlast nn) nn))))]
+                (if (= dig (reverse dig))
+                  (dig-to-n dig)
+                  (condp = (compare d1 d2) 
+                    0  (recur dig (inc pos))
+                    -1 (dig-to-n (concat hm (reverse half)))
+                    1  (dig-to-n nd))))))]
+    (let [np (next-paly n)]
+      (cons np (lazy-seq (next-palyndromes (inc np)))))))
+
+(let [__ next-palyndromes]
+  [(= (take 26 (__ 0))
+      [0 1 2 3 4 5 6 7 8 9 
+       11 22 33 44 55 66 77 88 99 
+       101 111 121 131 141 151 161])
+   (= (take 16 (__ 162))
+      [171 181 191 202 
+       212 222 232 242 
+       252 262 272 282 
+       292 303 313 323])
+   (= (take 6 (__ 1234550000))
+      [1234554321 1234664321 1234774321 
+       1234884321 1234994321 1235005321])
+   (= (first (__ (* 111111111 111111111)))
+      (* 111111111 111111111))
+   (= (set (take 199 (__ 0)))
+      (set (map #(first (__ %)) (range 0 10000))))
+   (= true 
+      (apply < (take 6666 (__ 9999999))))
+   (= (nth (__ 0) 10101)
+      9102019)])
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; #152
+(defn lss1 [v & opt]
+  (letfn [(contains-latin-square? [b c [y x] w]
+            (let [elems (set (subvec (nth b y) x (+ x w)))]
+              (when (and (= (count elems) w) (not (elems :e)))
+                (let [rows (map #(subvec (nth b (+ y %)) x (+ x w)) (range w))
+                      cols (map #(subvec (nth c (+ x %)) y (+ y w)) (range w))
+                      lines (map set (concat rows cols))]
+                  (when (every? #(= % elems) lines) rows)))))
+          (cart [colls]
+            (if (empty? colls)
+              '(())
+              (for [x (first colls)
+                    more (cart (rest colls))]
+                (cons x more))))
+          ]
+    (let [colsfn (memoize (fn [m] (map (fn [c] (vec (map #(nth % c) m))) (range (count (first m))))))
+          maxln (apply max (map count v))
+          steps (cart (map range (map #(inc (- maxln (count %))) v)))
+          matrices (map (fn [offset]
+                          (map (fn [e i] (vec (concat (repeat i :e) e (repeat (- maxln (+ i (count e))) :e)) )) v offset)) steps)
+          ;;_ (println (count matrices) "matrices")
+          allsquares (remove nil?
+                             (distinct (for [m matrices
+                                             :let [hm (count m) wm (count (first m))
+                                                   cols (colsfn m)]
+                                             y (range hm)
+                                             x (range wm)
+                                             w (range 2 (inc hm))
+                                             :when (and (<= (+ y w) hm) (<= (+ x w) wm))]
+                                         (contains-latin-square? m cols [y x] w)))) 
+          ] 
+      (into {}
+            (map (fn [[p1 p2]] {p1 (count p2)})
+                 (group-by count
+                           allsquares))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn lss2 [v & opt]
+  (let [v (vec (remove empty? v))]
+    (letfn [(contains-latin-square? [o [y x] w]
+              (let [frw (- x (nth o y))
+                    elems (set (subvec (nth v y) frw (+ frw w)))]
+                (when (= (count elems) w)
+                  (let [yw (+ y w)
+                        rows (map #(let [xo (- x %2)]
+                                     (subvec % xo (+ xo w))) (subvec v y yw) (subvec o y yw))
+                        cols (apply map vector rows)
+                        lines (map set (concat rows cols))]
+                    (when (every? #(= % elems) lines) rows)))))
+            (cart [colls]
+              (if (empty? colls)
+                '(())
+                (for [x (first colls)
+                      more (cart (rest colls))]
+                  (cons x more))))]
+      (let [cv (count v) rcv (range cv)
+            maxln (apply max (map count v))
+            steps (map vec (cart (map range (map #(inc (- maxln (count %))) v))))
+            allsquares (distinct (remove nil?
+                                         (apply concat
+                                                (for [o steps
+                                                      y rcv
+                                                      :let [oy (nth o y)
+                                                            ends (map + o (map count v))]
+                                                      x (range oy (+ oy (count (nth v y))))
+                                                      ]
+                                                  (for [w (range (inc cv) 1 -1)
+                                                        :let [yw (+ y w)]
+                                                        :when (and (<= yw cv) (every? #(and (>= x (nth o %)) (<= (+ x w) (nth ends %))) (range y yw)))
+                                                        :let [result (contains-latin-square? o [y x] w)]
+                                                        :while [(not (nil? result))]]
+                                                    result))))) 
+            ] 
+        (into {}
+              (map (fn [[p1 p2]] {p1 (count p2)})
+                   (group-by count
+                             allsquares)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn lss3 [v & opt]
+  (letfn [(contains-latin-square? [b o [x y] w]
+            (let [;;_ (println "b=" b "o=" o "[y x]=" [y x] "w=" w)
+                  v1 (for [y (range y (+ y w))
+                           :let [xo (- x (nth o y))]
+                           x (range xo (+ xo w)) 
+                           :let [;;_ (println "b=" b "[y x]=" [y x])
+                                 e (get-in b [y x] nil)
+                                 ;;_ (println "e=" e)
+                                 ]]
+                       {:rows #{[y e]} :cols #{[x e]} :values #{e}} )
+                  ;;_ (println "v1=" v1)
+                  v2 (apply merge-with into v1)
+                  ;;_ (println "v2=" v2)
+                  v3 (reduce-kv #(assoc % %2 (count %3)) {} v2)
+                  ;;_ (println "v3=" v3)
+                  w2 (* w w)]
+              (and (= v3 {:rows w2 :cols w2 :values w}) v2)))
+          (cart [colls]
+            (if (empty? colls)
+              '(())
+              (for [x (first colls)
+                    more (cart (rest colls))]
+                (cons x more))))]
+    (let [v (vec (remove empty? v))
+          cv (count v) rcv (range cv)
+          maxln (apply max (map count v))
+          maxw (Math/min cv maxln)
+          steps (cart (map range (map #(inc (- maxln (count %))) v)))          
+          allsquares (distinct (remove false?
+                                       (for [o steps
+                                             y rcv
+                                             x (range (dec maxln))
+                                             w (range (Math/min (- maxw x) (- maxw y)) 1 -1)
+                                             :let [result (contains-latin-square? v o [y x] w)]
+                                             :while [(not (false? result))]
+                                             ]
+                                         result)))] 
+      (into {}
+            (map (fn [[p1 p2]] {p1 (count p2)})
+                 (group-by count
+                           allsquares))))))
+
+;; Same as lss2 but replacing for with mapcat/map, as suggested by
+;; https://github.com/4clojure/4clojure/issues/66 and
+;; https://github.com/4clojure/4clojure/issues/211
+(fn lss4 [v & opt]
+  (let [v (vec (remove empty? v))]
+    (letfn [(contains-latin-square? [o [y x] w]
+              (let [frw (- x (nth o y))
+                    elems (set (subvec (nth v y) frw (+ frw w)))]
+                (when (= (count elems) w)
+                  (let [yw (+ y w)
+                        rows (map #(let [xo (- x %2)]
+                                     (subvec % xo (+ xo w))) (subvec v y yw) (subvec o y yw))
+                        cols (apply map vector rows)
+                        lines (map set (concat rows cols))]
+                    (when (every? #(= % elems) lines) rows)))))
+            (cart [colls]
+              (if (empty? colls)
+                '(())
+                (for [x (first colls)
+                      more (cart (rest colls))]
+                  (cons x more))))]
+      (let [cv (count v) rcv (range cv)
+            maxln (apply max (map count v))
+            steps (map vec (cart (map range (map #(inc (- maxln (count %))) v))))
+            allsquares (distinct (remove nil?
+                                         (mapcat
+                                          (fn [o]
+                                            (mapcat
+                                             (fn [y]
+                                               (let [oy (nth o y)
+                                                     ends (map + o (map count v))]
+                                                 (mapcat
+                                                  (fn [x]
+                                                    (map
+                                                     (fn [w]
+                                                       (let [yw (+ y w)]
+                                                         (when (and (<= yw cv) (every? #(and (>= x (nth o %)) (<= (+ x w) (nth ends %))) (range y yw)))
+                                                           (contains-latin-square? o [y x] w))))
+                                                     (range (inc cv) 1 -1)))
+                                                  (range oy (+ oy (count (nth v y)))))))
+                                             rcv))
+                                          steps)))]
+        (frequencies (map count
+                          allsquares))))))
+
+(defn lss5 [v & opt]
+  (let [v (vec (remove empty? v))]
+    (letfn [(contains-latin-square? [o [y x] w]
+              (let [frw (- x (nth o y))
+                    elems (set (subvec (nth v y) frw (+ frw w)))]
+                (when (= (count elems) w)
+                  (let [yw (+ y w)
+                        rows (map #(let [xo (- x %2)]
+                                     (subvec % xo (+ xo w))) (subvec v y yw) (subvec o y yw))
+                        cols (apply map vector rows)
+                        lines (map set (concat rows cols))]
+                    (when (every? #(= % elems) lines) rows)))))
+            (cart [colls]
+              (if (empty? colls)
+                '(())
+                (for [x (first colls)
+                      more (cart (rest colls))]
+                  (cons x more))))]
+      (let [cv (count v) rcv (range cv)
+            maxln (apply max (map count v))
+            steps (map vec (cart (map range (map #(inc (- maxln (count %))) v))))
+            allsquares (distinct (remove nil?
+                                         (mapcat
+                                          (fn [o]
+                                            (mapcat
+                                             (fn [y]
+                                               (let [oy (nth o y)
+                                                     ends (map + o (map count v))]
+                                                 (mapcat
+                                                  (fn [x]
+                                                    (map
+                                                     (fn [w]
+                                                       (let [yw (+ y w)]
+                                                         (when (and (<= yw cv) (every? #(and (>= x (nth o %)) (<= (+ x w) (nth ends %))) (range y yw)))
+                                                           (contains-latin-square? o [y x] w))))
+                                                     (range (inc cv) 1 -1)))
+                                                  (range oy (+ oy (count (nth v y)))))))
+                                             rcv))
+                                          steps)))]
+        (frequencies (map count
+                          allsquares))))))
+
+(defn lss6 [v & opt]
+  (let [v (vec (remove empty? v)), cv (count v), rcv (range cv), mcv (map count v), maxln (apply max mcv), mc mapcat]
+    (letfn [(take-part [n1 n2 s] (take n2 (drop n1 s)))
+            (latin? [[o y x w]]
+              (let [elems (set (take-part (- x (nth o y)) w (nth v y)))]
+                (when (= (count elems) w)
+                  (let [rows (map #(take-part (- x %2) w %) (take-part y w v) (take-part y w o))
+                        cols (apply map vector rows)]
+                    (when (every? #(= (set %) elems) (concat rows cols))
+                      rows)))))
+            (cart [colls] (if (empty? colls) '(())
+                              (for [x (first colls) more (cart (rest colls))]
+                                (cons x more))))]
+      (let [steps (cart (map range (map #(inc (- maxln (count %))) v)))
+            ;; Ugly, but a for loop triggers bug https://github.com/4clojure/4clojure/issues/211
+            allsquares (mc (fn [o] (mc (fn [y] (let [oy (nth o y)] (mc (fn [x] (map (fn [w] [o y x w]) (range 2 (inc cv)))) (range oy (+ oy (count (nth v y))))))) rcv)) steps)]
+        (->> allsquares
+             (map latin?)
+             (remove nil?)
+             distinct
+             (map count)
+             frequencies)))))
+
+(let [__ lss6]
+  (do
+    [(= (__ '[[A B C D]
+              [A C D B]
+              [B A D C]
+              [D C A B]])
+        {})
+     (= (__ '[[A B C D E F]
+              [B C D E F A]
+              [C D E F A B]
+              [D E F A B C]
+              [E F A B C D]
+              [F A B C D E]])
+        {6 1})
+     (= (__ '[[A B C D]
+              [B A D C]
+              [D C B A]
+              [C D A B]])
+        {4 1, 2 4})
+     (= (__ '[[B D A C B]
+              [D A B C A]
+              [A B C A B]
+              [B C A B C]
+              [A D B C A]])
+        {3 3})
+     (= (__ [[2 4 6 3]
+             [3 4 6 2]
+             [6 2 4]  ])
+        {})
+     (= (__ [[1]
+             [1 2 1 2]
+             [2 1 2 1]
+             [1 2 1 2]
+             []       ])
+        {2 2})
+     (= (__ [[3 1 2]
+             [1 2 3 1 3 4]
+             [2 3 1 3]    ])
+        {3 1, 2 2})
+     (= (__ [[8 6 7 3 2 5 1 4]
+             [6 8 3 7]
+             [7 3 8 6]
+             [3 7 6 8 1 4 5 2]
+             [1 8 5 2 4]
+             [8 1 2 4 5]])
+        {4 1, 3 1, 2 7})]
+    ))
+
+;; #153
+(fn pds [xs]
+  (every? empty? (for [x xs y xs :when (not= x y)] (clojure.set/intersection x y))))
+
+;; #156
+(fn map-def [v ks]
+  (apply hash-map (interleave ks (repeat v))))
+(fn map-def [v ks]
+  (zipmap ks (repeat v)))
+
+;; #157
+(fn index-pairs [s]
+  (map-indexed #(vector %2 %) s))
+#(map vector % (range))
+
+;; #158
+(fn decurry [f]
+  (fn [& args] (reduce #(% %2) f args)))
+
+;; #164
+(defn accept? [dfa state]
+  ((:accepts dfa) state))
+
+(defn valid-chars [dfa state]
+  (keys ((:transitions dfa) state)))
+
+(defn transition [dfa cur char]
+  ((cur (:transitions dfa)) char))
+
+(defn next-states [dfa cur]
+  (map (partial transition dfa cur) (valid-chars dfa cur)))
+
+;; First PoC solution, prints the results but doesn't return them, uses functions above
+(defn dfa-walk1 [{:keys [states alphabet start accepts transitions] :as dfa}]
+  (let [;;_ (println dfa)
+        ]
+    (if (accept? dfa start) (println (:last dfa)))
+    (map #(cons % (dfa-walk1 (assoc dfa :last (str (:last dfa) %) :start (transition dfa start %)))) (valid-chars dfa start))))
+
+;; First working solution
+(defn dfa-walk2 [{:keys [states alphabet start accepts transitions result counts] :as dfa}]
+  (letfn [(accept? [state]
+            ((:accepts dfa) state))
+          (valid-chars [state]
+            (keys ((:transitions dfa) state)))
+          (transition [cur char]
+            ((cur (:transitions dfa)) char))
+          ]
+    (distinct
+     (let [;;_ (println dfa)
+           res (when (accept? start) (:last dfa))
+           chars (valid-chars start)
+           ]
+       (if (or (empty? chars) (> (get counts start 0) (* 2 (count states)))) (cons res result)
+           (remove nil? (mapcat #(dfa-walk2 (assoc dfa
+                                                   :result (cons res result)
+                                                   :last (str (:last dfa) %)
+                                                   :start (transition start %)
+                                                   :counts (update-in counts [start] (fn [o] (inc (or o 0)))))) chars)))))))
+
+;; Simplified
+(fn dfa-walk [{:keys [start accepts transitions result counts laststr] :as dfa}]
+  (distinct (remove nil? 
+                    (let [res (if (accepts start) (cons laststr result) result)
+                          chars (keys (transitions start))]
+                      (if (or (empty? chars) (> (get counts start 0) (count transitions)))
+                        res
+                        (mapcat (fn [c] (dfa-walk (assoc dfa
+                                                         :result res
+                                                         :laststr (str laststr c)
+                                                         :start ((transitions start) c)
+                                                         :counts (update-in counts [start] #(inc (or % 0)))))) chars))))))
+
+(let [__ dfa-walk]
+  [(= #{"a" "ab" "abc"}
+      (set (__ '{:states #{q0 q1 q2 q3}
+                 :alphabet #{a b c}
+                 :start q0
+                 :accepts #{q1 q2 q3}
+                 :transitions {q0 {a q1}
+                               q1 {b q2}
+                               q2 {c q3}}})))
+   (= #{"hi" "hey" "hello"}
+      (set (__ '{:states #{q0 q1 q2 q3 q4 q5 q6 q7}
+                 :alphabet #{e h i l o y}
+                 :start q0
+                 :accepts #{q2 q4 q7}
+                 :transitions {q0 {h q1}
+                               q1 {i q2, e q3}
+                               q3 {l q5, y q4}
+                               q5 {l q6}
+                               q6 {o q7}}})))
+   (= (set (let [ss "vwxyz"] (for [i ss, j ss, k ss, l ss] (str i j k l))))
+      (set (__ '{:states #{q0 q1 q2 q3 q4}
+                 :alphabet #{v w x y z}
+                 :start q0
+                 :accepts #{q4}
+                 :transitions {q0 {v q1, w q1, x q1, y q1, z q1}
+                               q1 {v q2, w q2, x q2, y q2, z q2}
+                               q2 {v q3, w q3, x q3, y q3, z q3}
+                               q3 {v q4, w q4, x q4, y q4, z q4}}})))
+   (let [res (take 2000 (__ '{:states #{q0 q1}
+                              :alphabet #{0 1}
+                              :start q0
+                              :accepts #{q0}
+                              :transitions {q0 {0 q0, 1 q1}
+                                            q1 {0 q1, 1 q0}}}))]
+     (and (every? (partial re-matches #"0*(?:10*10*)*") res)
+          (= res (distinct res))))
+   (let [res (take 2000 (__ '{:states #{q0 q1}
+                              :alphabet #{n m}
+                              :start q0
+                              :accepts #{q1}
+                              :transitions {q0 {n q0, m q1}}}))]
+     (and (every? (partial re-matches #"n*m") res)
+          (= res (distinct res))))
+   (let [res (take 2000 (__ '{:states #{q0 q1 q2 q3 q4 q5 q6 q7 q8 q9}
+                              :alphabet #{i l o m p t}
+                              :start q0
+                              :accepts #{q5 q8}
+                              :transitions {q0 {l q1}
+                                            q1 {i q2, o q6}
+                                            q2 {m q3}
+                                            q3 {i q4}
+                                            q4 {t q5}
+                                            q6 {o q7}
+                                            q7 {p q8}
+                                            q8 {l q9}
+                                            q9 {o q6}}}))]
+     (and (every? (partial re-matches #"limit|(?:loop)+") res)
+          (= res (distinct res))))
    ])
 
+;; #166
+(fn [op a b]
+  (cond (op a b) :lt
+        (op b a) :gt
+        :else    :eq))
+
+;; #168
+(fn infm
+  ([f] (infm f 0 0))
+  ([f m n] (letfn [(row [f i j] (lazy-seq (cons (f i j) (row f i (inc j)))))]
+             (lazy-seq (cons (row f m n) (infm f (inc m) n)))))
+  ([f m n s t] (take s (map #(take t %) (infm f m n)))))
+
+;; #171
+(fn intervals [s]
+  (if (empty? s) []
+      (let [[f & r] (sort s)]
+        (reduce (fn [v e] (if (< (- e (last (last v))) 2)
+                            (concat (butlast v) [[(first (last v)) e]])
+                            (concat v [[e e]])))
+                [[f f]] r))))
+
+;; Simpler using more destructuring
+(fn intervals [s]
+  (if (empty? s) []
+      (let [[f & r] (sort s)]
+        (reverse (reduce (fn [[[v w] & x :as y] e]
+                           (if (< (- e w) 2) (conj x [v e]) (conj y [e e])))
+                         [[f f]] r)))))
+
+;; #177
+#(let [c {\( \) \[ \] \{ \}}]
+   (empty? (reduce (fn [[v & w :as x] e] (if (= e (c v)) w (conj x e))) '()
+                   (filter (set (flatten (seq c))) %))))
+
+;; #178
+(fn high-hand [cards]
+  (letfn [(card [acelow? s]
+            (let [suits {"D" :diamond "H" :heart "C" :club "S" :spade}
+                  ranks (if acelow? (apply merge {"T" 9 "J" 10 "Q" 11 "K" 12 "A" 0} (map #(hash-map (str %) (- % 1)) (range 2 10))) (apply merge {"T" 8 "J" 9 "Q" 10 "K" 11 "A" 12} (map #(hash-map (str %) (- % 2)) (range 2 10)))) 
+                  [suit rank] (map str (seq s))]
+              {:suit (suits suit) :rank (ranks rank)}))
+          (flush? [cards] (apply = (map :suit cards)))
+          (straight? [cards] (let [rs (map :rank cards)] (and (= 4 (- (last rs) (first rs)))
+                                                              (apply = (map (partial apply -) (partition 2 1 rs))))))
+          (straight-flush? [cards] (and (flush? cards) (straight? cards)))
+          (four-of-a-kind? [cards] (let [by-rank (group-by :rank cards)] (some #(= 4 (count %)) (vals by-rank))))
+          (full-house? [cards] (let [by-rank (group-by :rank cards)] (= #{3 2} (set (map count (vals by-rank))))))
+          (three-of-a-kind? [cards] (let [by-rank (group-by :rank cards)] (some #(= 3 (count %)) (vals by-rank))))
+          (pair? [cards] (let [by-rank (group-by :rank cards)] (some #(= 2 (count %)) (vals by-rank))))
+          (two-pair? [cards] (let [by-rank (group-by :rank cards)] (= 2 (count (filter #(= 2 (count %)) (vals by-rank))))))
+          (high-card? [cards] true)
+          ]
+    (let [cards1 (sort-by :rank (map (partial card false) cards))
+          cards2 (sort-by :rank (map (partial card true) cards))
+          fns [[:straight-flush straight-flush?]
+               [:four-of-a-kind four-of-a-kind?]
+               [:full-house full-house?]
+               [:flush flush?]
+               [:straight straight?]
+               [:three-of-a-kind three-of-a-kind?]
+               [:two-pair two-pair?]
+               [:pair pair?]
+               [:high-card high-card?]]
+          ] 
+      (first (for [[hand check] fns cards [cards1 cards2]
+                   :when (check cards)] hand)))
+    ))
+
+;; A bit shorter and clearer
+(fn high-hand [cards]
+  (letfn [(card [acelow? s]
+            (let [suits {"D" :diamond "H" :heart "C" :club "S" :spade}
+                  ranks (apply merge {"T" 8 "J" 9 "Q" 10 "K" 11 "A" (if acelow? -1 12)} (map #(hash-map (str %) (- % 2)) (range 2 10))) 
+                  [suit rank] (map str (seq s))]
+              {:suit (suits suit) :rank (ranks rank)}))
+          (by-rank [cards] (vals (group-by :rank cards)))
+          (n-o-a-k? [cards n] (some #(= n (count %)) (by-rank cards)))
+          (flush? [cards] (apply = (map :suit cards)))
+          (straight? [cards] (let [rs (map :rank cards)] (= rs (range (first rs) (inc (last rs))))))
+          (straight-flush? [cards] (and (flush? cards) (straight? cards)))
+          (four-of-a-kind? [cards] (n-o-a-k? cards 4))
+          (full-house? [cards] (= #{3 2} (set (map count (by-rank cards)))))
+          (three-of-a-kind? [cards] (n-o-a-k? cards 3))
+          (pair? [cards] (n-o-a-k? cards 2))
+          (two-pair? [cards] (= 2 (count (filter #(= 2 (count %)) (by-rank cards)))))
+          (high-card? [cards] true)]
+    (let [cards1 (sort-by :rank (map (partial card false) cards))
+          cards2 (sort-by :rank (map (partial card true) cards))
+          fns [[:straight-flush  straight-flush?]
+               [:four-of-a-kind  four-of-a-kind?]
+               [:full-house      full-house?]
+               [:flush           flush?]
+               [:straight        straight?]
+               [:three-of-a-kind three-of-a-kind?]
+               [:two-pair        two-pair?]
+               [:pair            pair?]
+               [:high-card       high-card?]]]
+      (first (for [[hand check] fns cards [cards1 cards2]
+                   :when (check cards)] hand)))))
+
+;; #195
+(fn pars
+  ([n] (set (pars n 0)))
+  ([n c] (if (= n c 0) [""]
+             (concat (when (pos? n) (map #(str "(" %) (pars (dec n) (inc c))))
+                     (when (pos? c) (map #(str ")" %) (pars n (dec c))))))))
